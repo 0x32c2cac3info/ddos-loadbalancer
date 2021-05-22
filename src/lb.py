@@ -2,6 +2,7 @@ from signal import signal, SIGINT
 
 from scapy.layers.inet import IP, TCP
 from scapy.sendrecv import sniff, send
+from threading import Thread, Lock
 import time
 import sys
 
@@ -18,14 +19,42 @@ class LoadBalancer:
         self.vip = vip
         self.rip = rip
         self.states = {}
+        self.timeouts = {}
+        self.defult_timeout = 10
+        self.lock = Lock()
+        self.handler = Thread(target=self.update_timeouts)
+        self.pause = 1
         self.servers = {int(0x3333): '192.168.0.1'}
         self.key = int(0x11112222)
         self.isAttacked = isAttacked
+        self.isRunning = False
+
+    def update_timeouts(self):
+        while self.isRunning:
+            print(self.timeouts)
+            try:
+                    t = time.time()
+                    with self.lock:
+                        ll = list(self.timeouts.items())
+                    for k, v in ll:
+                        if v + self.defult_timeout < t:
+                            with self.lock:
+                                self.states.pop(k)
+                                self.timeouts.pop(k)
+            except:
+                print("Handler {}: error of timeout checking".format(getpid()))
+            time.sleep(self.pause)
 
     def start(self):
-        # receive packet
-        sniff(iface='h2-eth0', prn=self.process_packet,
-              filter="tcp port 80 and host " + self.vip)
+        try:
+            self.isRunning = True
+            self.handler.start()
+            # receive packet
+            sniff(iface='h2-eth0', prn=self.process_packet,
+                  filter="tcp port 80 and host " + self.vip)
+        except:
+            self.isRunning = False
+            self.handler.join()
 
     def process_packet(self, pkt):
         t0 = time.time()
@@ -39,6 +68,7 @@ class LoadBalancer:
 
         # check current connection in our states
         global response
+
         if tuple_4 in self.states.keys():
             # response = IP(src=self.rip, dst=self.servers[self.states[tuple_4]]) / pkt
             response = IP(src=self.rip, dst=self.servers[self.states[tuple_4]]) / \
@@ -47,19 +77,27 @@ class LoadBalancer:
                                ack=pkt.payload.ack, flags=pkt.payload.flags, window=pkt.payload.window,
                                options=pkt.payload.options) / \
                            pkt.payload.payload
+            with self.lock:
+                self.timeouts[tuple_4] = time.time()
+            # coonection is closing
             if pkt.haslayer(TCP) and pkt.payload.flags == 'FA':
-                self.states.pop(tuple_4)
+                with self.lock:
+                    self.states.pop(tuple_4)
+                    self.timeouts.pop(tuple_4)
+
         elif pkt.haslayer(TCP) and pkt.payload.flags == 'S':
             # 3333 is server identifier
             id = int(0x3333)
             if not self.isAttacked:
-                self.states[tuple_4] = id
+                with self.lock:
+                    self.states[tuple_4] = id
+                    self.timeouts[tuple_4] = time.time()
                 # response = IP(src=self.rip, dst=self.servers[id]) / pkt
                 response = IP(src=self.rip, dst=self.servers[id]) / \
                            IP(src=pkt.src, dst=pkt.dst) / \
                            TCP(sport=pkt.payload.sport, dport=pkt.payload.dport, seq=pkt.payload.seq,
                                ack=pkt.payload.ack, flags=pkt.payload.flags, window=pkt.payload.window,
-                               options=pkt.payload.options)
+                               options=pkt.payload.options)           
             else:
                 # add experiment option
                 response = IP(src=self.rip, dst=self.servers[id]) / \
@@ -78,7 +116,9 @@ class LoadBalancer:
             id = cookie_check(pkt[IP], pkt[TCP], self.key)
             print(hex(id))
             if id and id in self.servers.keys():
-                self.states[tuple_4] = id & int(16 * '1', 2)
+                with self.lock:
+                    self.states[tuple_4] = id & int(16 * '1', 2)
+                    self.timeouts[tuple_4] = time.time()
                 response = IP(src=self.rip, dst=self.servers[id]) / pkt
             else:
                 print("Not valid cookie:", pkt.summary())
