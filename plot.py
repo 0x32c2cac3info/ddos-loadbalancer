@@ -28,7 +28,7 @@ def draw_plot(rate):
 
 
 if __name__ == "__main__":
-    file = open('stats.txt', 'w')
+    file = open('results/stats.txt', 'w')
     rates = ['zero', 'fast', 'faster', 'flood']
     for r in rates:
         draw_plot(r)
