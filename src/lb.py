@@ -1,8 +1,7 @@
-from signal import signal, SIGINT
-
 from scapy.layers.inet import IP, TCP
 from scapy.sendrecv import sniff, send
 from threading import Thread, Lock
+from signal import signal, alarm, SIGINT, SIGALRM
 import time
 import sys
 
@@ -21,7 +20,7 @@ class LoadBalancer:
         self.rip = rip
         self.states = {}
         self.timeouts = {}
-        self.defult_timeout = 10
+        self.default_timeout = 60
         self.servers = {int(0x3333): '192.168.0.1'}
         self.key = int(0x11112222)
         self.isAttacked = isAttacked
@@ -41,7 +40,7 @@ class LoadBalancer:
                 with self.lock:
                     ll = list(self.timeouts.items())
                 for k, v in ll:
-                    if v + self.defult_timeout < t:
+                    if v + self.default_timeout < t:
                         with self.lock:
                             self.states.pop(k)
                             self.timeouts.pop(k)
@@ -63,7 +62,6 @@ class LoadBalancer:
             self.collector.terminate()
             self.handler.join()
 
-
     def process_packet(self, pkt):
         t0 = time.time()
 
@@ -71,7 +69,9 @@ class LoadBalancer:
         pkt = pkt.payload
         # print("RCV", pkt.summary())
         # generate 4 tuple for hashing
-        tuple_4 = str(pkt.src) + str(pkt.dst) + str(pkt.payload.sport) + str(pkt.payload.dport)
+        # tuple_4 = str(pkt.src) + str(pkt.dst) + str(pkt.payload.sport) + str(pkt.payload.dport)
+        tuple_4 = str(pkt.src) + str(pkt.payload.sport)
+        # tuple_4 = str(pkt.payload.sport)
         # print(tuple_4)
 
         # check current connection in our states
@@ -145,6 +145,8 @@ class LoadBalancer:
 
 
 if __name__ == '__main__':
+    alarm(300)
+    signal(SIGALRM, signalHandler)
     signal(SIGINT, signalHandler)
     # configure lb mode
     defense = False
@@ -152,7 +154,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1][0] == 't':
         defense = True
     if len(sys.argv) > 2:
-    	rate = sys.argv[2]
-    lb = LoadBalancer(vip='10.0.0.2', rip='192.168.0.2', isAttacked=defense, \
+        rate = sys.argv[2]
+    lb = LoadBalancer(vip='10.0.0.2', rip='192.168.0.2', isAttacked=defense,
                       filename="results/{}{}.txt".format(rate, "-defense" if defense else ""))
     lb.start()

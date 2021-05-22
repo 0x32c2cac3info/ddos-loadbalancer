@@ -55,7 +55,7 @@ def run():
     info("### Add routes \n")
     # h1.cmd('ip route add 10.0.0.0/30 via 172.16.1.2 dev h1-eth0')
     h1.cmd('ip route add default dev h1-eth0')
-    h1.cmd('sh disable_rp_filter.sh')
+    h1.cmd('sysctl net.ipv4.conf.enp0s9.rp_filter=0')
     h1.cmd("iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP")
     h2.cmd("iptables -A OUTPUT -p tcp --tcp-flags RST RST -j DROP")
 
@@ -67,7 +67,6 @@ def run():
     h1.cmd('xterm &')
     h1.cmd('xterm &')
     h2.cmd('xterm &')
-    # h2.cmd("python src/lb.py &")
 
     CLI(net)
 
